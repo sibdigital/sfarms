@@ -1,0 +1,342 @@
+<?php
+/**
+ * @file
+ * Code for the Farm Maps feature.
+ */
+
+include_once 'farm_map.block.inc';
+include_once 'farm_map.geo.inc';
+
+/**
+ * Implements hook_hook_info().
+ */
+function farm_map_hook_info() {
+  $hooks['farm_map_behaviors'] = array(
+    'group' => 'farm_map',
+  );
+  $hooks['farm_map_behavior_settings'] = array(
+    'group' => 'farm_map',
+  );
+  $hooks['farm_map_view'] = array(
+    'group' => 'farm_map',
+  );
+  return $hooks;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function farm_map_permission() {
+  $perms = array(
+    'administer farm_map module' => array(
+      'title' => t('Administer farm map module'),
+    ),
+  );
+  return $perms;
+}
+
+/**
+ * Implements hook_farm_access_perms().
+ */
+function farm_map_farm_access_perms($role) {
+  $perms = array();
+
+  // Load the list of farm roles.
+  $roles = farm_access_roles();
+
+  // If this role has 'config' access,grant access to map configuration.
+  if (!empty($roles[$role]['access']['config'])) {
+    $perms[] = 'administer farm_map module';
+  }
+
+  return $perms;
+}
+
+/**
+ * Implements hook_menu().
+ */
+function farm_map_menu() {
+
+  // Map configuration form.
+  $items['admin/config/farm/map'] = array(
+    'title' => 'Map',
+    'description' => 'Map configuration settings.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('farm_map_settings_form'),
+    'access arguments' => array('administer farm_map module'),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_libraries_info().
+ */
+function farm_map_libraries_info() {
+  $libraries['farmOS-map'] = array(
+    'name' => 'farmOS Map',
+    'vendor url' => 'https://github.com/farmOS/farmOS-map',
+    'download url' => 'https://github.com/farmOS/farmOS-map/releases',
+    'version arguments' => array(
+      'file' => 'farmOS-map.js',
+      'pattern' => '/farmOS-map v([0-9\.]+)/',
+      'lines' => 1,
+    ),
+    'files' => array(
+      'js' => array('farmOS-map.js'),
+    ),
+  );
+  return $libraries;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function farm_map_theme($existing, $type, $theme, $path) {
+  return array(
+    'farm_map' => array(
+      'render element' => 'element',
+    ),
+  );
+}
+
+/**
+ * Returns HTML that wraps the farm map..
+ */
+function theme_farm_map(&$vars) {
+
+  // Get the element.
+  $element = $vars['element'];
+
+  // Load the farmOS-map.js library.
+  libraries_load('farmOS-map');
+
+  // Get the map name (default to 'farm_map').
+  if (empty($element['#map_name'])) {
+    $element['#map_name'] = 'farm_map';
+  }
+  $map_name = $element['#map_name'];
+
+  // Generate a map div ID, if one wasn't provided.
+  $id = drupal_html_id($map_name);
+  if (!empty($element['#attributes']['id'])) {
+    $id = $element['#attributes']['id'];
+  }
+  else {
+    $element['#attributes']['id'] = $id;
+  }
+
+  // Add 'farm-map' CSS class.
+  if (empty($element['#attributes']['class']) || !in_array('farm-map', $element['#attributes']['class'])) {
+    $element['#attributes']['class'][] = 'farm-map';
+  }
+
+  // Create a settings array to be passed to JavaScript.
+  $settings = array(
+    'farm_map' => array(),
+  );
+
+  // Add a setting that defines the base path of the site.
+  // We do this instead of using Drupal.settings.basePath in Javascript
+  // because that variable does not take into account whether or not clean
+  // URLs are enabled.
+  $settings['farm_map']['base_path'] = url('<front>');
+
+  // Load the system of measurement, and save it to settings.
+  $system_of_measurement = farm_quantity_system_of_measurement();
+  $settings['farm_map']['units'] = $system_of_measurement;
+
+  // If WKT is set, add it to the settings associated with the element ID.
+  if (isset($element['#wkt'])) {
+    $settings['farm_map']['wkt'][$id] = $element['#wkt'];
+  }
+
+  // Add the JavaScript settings.
+  drupal_add_js($settings, 'setting');
+
+  // Add farm_map.js, which will run farmOS.map.create().
+  drupal_add_js(drupal_get_path('module', 'farm_map') . '/js/farm_map.js');
+
+  // Add farm_map.css.
+  drupal_add_css(drupal_get_path('module', 'farm_map') . '/css/farm_map.css');
+
+  // Allow other modules to perform logic.
+  module_invoke_all('farm_map_view', $map_name, $element);
+
+  // Return a simple div with attributes.
+  return '<div' . drupal_attributes($element['#attributes']) . '></div>';
+}
+
+/**
+ * Implements hook_element_info().
+ */
+function farm_map_element_info() {
+  return array(
+    'farm_map' => array(
+      '#theme' => 'farm_map',
+    ),
+  );
+}
+
+/**
+ * Build a map render array.
+ *
+ * @param string $map_name
+ *   The machine name of the map.
+ * @param bool $fieldset
+ *   Whether or not to wrap the map in a fieldset.
+ * @param string $title
+ *   Whether or not to wrap the map in a fieldset.
+ * @param bool $collapsed
+ *   Whether or not to collapse the fieldset by default.
+ *
+ * @return array
+ *   Returns a Drupal render array.
+ */
+function farm_map_build($map_name, $fieldset = FALSE, $title = '', $collapsed = FALSE) {
+
+  // Build the map.
+  $build = array(
+    '#type' => 'farm_map',
+    '#map_name' => $map_name,
+  );
+
+  // Wrap the map in a fieldset, if desired.
+  if (!empty($fieldset)) {
+
+    // Create the fieldset.
+    $build = array(
+      '#type' => 'fieldset',
+      '#title' => $title,
+      '#collapsible' => TRUE,
+      '#collapsed' => $collapsed,
+      'farm_map' => $build,
+    );
+
+    // Add 'collapsible' and 'collapsed' classes. This is necessary when
+    // rendering the fieldset outside of a form.
+    // See: https://www.drupal.org/node/1099132
+    drupal_add_library('system', 'drupal.collapse');
+    $build['#attributes']['class'][] = 'collapsible';
+    $build['#attributes']['class'][] = 'collapsed';
+  }
+
+  // Return the build.
+  return $build;
+}
+
+/**
+ * Add a farmOS-map behavior to the page.
+ *
+ * @param string $behavior
+ *   The behavior name.
+ * @param array $settings
+ *   Optionally provide settings to override defaults.
+ */
+function farm_map_add_behavior($behavior, $settings = array()) {
+
+  // Ask modules for behaviors.
+  $hook = 'farm_map_behaviors';
+  $modules = module_implements($hook);
+  foreach ($modules as $module) {
+
+    // Get the module's behaviors.
+    $behaviors = module_invoke($module, $hook);
+
+    // If the desired behavior isn't defined, skip.
+    if (!(array_key_exists($behavior, $behaviors) && !empty($behaviors[$behavior]['js']))) {
+      continue;
+    }
+
+    // If the module defines settings for the behavior, add them as JS settings.
+    $settings_hook = 'farm_map_behavior_settings';
+    $default_settings = array();
+    if (function_exists($module . '_' . $settings_hook)) {
+      $default_settings = module_invoke($module, $settings_hook, $behavior);
+    }
+    $settings = array_merge($default_settings, $settings);
+    if (!empty($settings)) {
+      drupal_add_js(array(
+        'farm_map' => array(
+          'behaviors' => array(
+            $behavior => $settings,
+          ),
+        ),
+      ), array('type' => 'setting'));
+    }
+
+    // Add the behavior JS to the page.
+    $path = drupal_get_path('module', $module) . '/' . $behaviors[$behavior]['js'];
+    drupal_add_js($path);
+  }
+}
+
+/**
+ * Map settings form.
+ */
+function farm_map_settings_form($form, &$form_state) {
+  $form = array();
+  return system_settings_form($form);
+}
+
+/**
+ * Extract geometries from an entity.
+ *
+ * @param $entity_type
+ *   The entity type machine name.
+ * @param $entity
+ *   The entity object.
+ *
+ * @return array
+ *   Return an array of geometry strings in WKT format. An associative array
+ *   is allowed, and the keys can be used to differentiate multiple geometries
+ *   from the same entity.
+ */
+function farm_map_entity_geometries($entity_type, $entity) {
+
+  // Ask modules to extract geometries.
+  return module_invoke_all('farm_map_entity_geometries', $entity_type, $entity);
+}
+
+/**
+ * Implements hook_farm_map_geometries().
+ */
+function farm_map_farm_map_entity_geometries($entity_type, $entity) {
+  $geometries = array();
+
+  // Find geometry in the standard geofield.
+  if (!empty($entity->field_farm_geofield[LANGUAGE_NONE][0]['geom'])) {
+    $geometries[] = $entity->field_farm_geofield[LANGUAGE_NONE][0]['geom'];
+  }
+
+  return $geometries;
+}
+
+/**
+ * Helper function for populating the geometry field of an entity.
+ *
+ * @param Entity $entity
+ *   The entity object.
+ * @param array $geoms
+ *   An array of geometry strings in WKT format.
+ */
+function farm_map_geofield_populate(&$entity, $geoms = array()) {
+
+  // If no geometries were found, bail.
+  if (empty($geoms)) {
+    return;
+  }
+
+  // Combine the WKT geometries into a single GeoPHP geometry.
+  $geometry = farm_map_combine_geoms($geoms);
+
+  // If that didn't work, bail.
+  if (empty($geometry)) {
+    return;
+  }
+
+  // Save the combined geometry to the movement log.
+  if (!empty($geometry)) {
+    $entity->field_farm_geofield[LANGUAGE_NONE][0] = geofield_get_values_from_geometry($geometry);
+  }
+}

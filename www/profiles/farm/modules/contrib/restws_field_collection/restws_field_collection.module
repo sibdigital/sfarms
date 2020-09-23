@@ -1,0 +1,340 @@
+<?php
+
+/**
+ * @file
+ * RESTful Web Services Field collection module.
+ */
+
+/**
+ * Get information about field collections provided by modules.
+ */
+function restws_field_collection_info() {
+  $info = &drupal_static(__FUNCTION__);
+  if (!isset($info)) {
+    $info = module_invoke_all('restws_field_collection_info');
+  }
+  return $info;
+}
+
+/**
+ * Implements hook_entity_property_info_alter().
+ */
+function restws_field_collection_entity_property_info_alter(&$info) {
+
+  // Get information about field collections.
+  $field_collections = restws_field_collection_info();
+
+  // Iterate through entity types.
+  foreach ($info as $entity_type => &$entity_info) {
+
+    // If the entity type doesn't have any bundles, skip it.
+    if (empty($entity_info['bundles'])) {
+      continue;
+    }
+
+    // Iterate through the entity type bundles.
+    foreach ($entity_info['bundles'] as $bundle => &$bundle_info) {
+
+      // Iterate through the field collections defined above.
+      foreach ($field_collections as $fc_name => $fc_info) {
+
+        // If the bundle doesn't contain the field collection, skip it.
+        if (!array_key_exists($fc_name, $bundle_info['properties'])) {
+          continue;
+        }
+
+        // If the field collection doesn't have an alias, label, or field info,
+        // skip it.
+        if (empty($fc_info['alias']) || empty($fc_info['label']) || empty($fc_info['fields'])) {
+          continue;
+        }
+
+        // If the field collection supports multiple values, make it a list.
+        $type = 'struct';
+        if (!empty($fc_info['multiple'])) {
+          $type = 'list<' . $type . '>';
+        }
+
+        // Add a new property for the field collection using its alias.
+        $bundle_info['properties'][$fc_info['alias']] = array(
+          'type' => $type,
+          'label' => $fc_info['label'],
+          'getter callback' => 'restws_field_collection_property_get',
+          'setter callback' => 'restws_field_collection_property_set',
+          'property info' => array(),
+        );
+
+        // Assemble property info based on the field info.
+        foreach ($fc_info['fields'] as $field_name => $field_info) {
+
+          // If the field supports multiple values, make it a list.
+          $type = $field_info['field_type'];
+          if (!empty($field_info['multiple'])) {
+            $type = 'list<' . $type . '>';
+          }
+
+          // Set the field property info.
+          $bundle_info['properties'][$fc_info['alias']]['property info'][$field_name] = array(
+            'type' => $type,
+            'label' => $field_info['field_label'],
+          );
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Get a field collection property.
+ */
+function restws_field_collection_property_get($data, array $options, $name, $type, $info) {
+
+  // Start an empty property array.
+  $property = array();
+
+  // Get information about field collections.
+  $field_collections = restws_field_collection_info();
+
+  // Iterate through the field collections.
+  foreach ($field_collections as $fc_name => $fc_info) {
+
+    // If the property name does not match the field collection alias, skip it.
+    if ($name != $fc_info['alias']) {
+      continue;
+    }
+
+    // If the field collection is empty in the entity, return.
+    if (empty($data->{$fc_name})) {
+      return $property;
+    }
+
+    // Load the field collection items.
+    foreach ($data->{$fc_name}[LANGUAGE_NONE] as $fc_ref) {
+
+      // Start an empty property fields array.
+      $property_fields = array();
+
+      // If the field collection item ID is empty, skip it.
+      if (empty($fc_ref['value'])) {
+        continue;
+      }
+
+      // Load the field collection item.
+      $fc_item = field_collection_item_load($fc_ref['value']);
+
+      // If the item didn't load, skip it.
+      if (empty($fc_item)) {
+        continue;
+      }
+
+      // Map field values from the field collection item to the property.
+      foreach ($fc_info['fields'] as $alias => $field_info) {
+
+        // Create an empty property field.
+        $property_fields[$alias] = '';
+
+        // Get value(s) for the property field.
+        $values = array();
+        if (!empty($fc_item->{$field_info['field_name']}[LANGUAGE_NONE])) {
+          foreach ($fc_item->{$field_info['field_name']}[LANGUAGE_NONE] as $delta => $field_value) {
+            $values[] = $field_value[$field_info['field_value']];
+          }
+        }
+
+        // If the field does not support multiple values, only use the first.
+        if (empty($field_info['multiple'])) {
+          $values = reset($values);
+        }
+
+        // Add the value(s) to the property field.
+        $property_fields[$alias] = $values;
+      }
+
+      // If the property fields aren't empty, add them to the property.
+      if (!empty($property_fields)) {
+        $property[] = $property_fields;
+      }
+    }
+
+    // If the field collection does not support multiple values, only use the
+    // first.
+    if (empty($fc_info['multiple'])) {
+      $property = reset($property);
+    }
+
+    // Return the property value(s).
+    return $property;
+  }
+}
+
+/**
+ * Sets a field collection property.
+ */
+function restws_field_collection_property_set(&$data, $name, $values, $langcode, $type, $info) {
+
+  // Get information about field collections.
+  $field_collections = restws_field_collection_info();
+
+  // Figure out what field collection this name maps to.
+  $field_name = '';
+  foreach ($field_collections as $fc_name => $fc_info) {
+    if ($name == $fc_info['alias']) {
+      $field_name = $fc_name;
+      break;
+    }
+  }
+
+  // If a field collection field name wasn't found, bail.
+  if (empty($field_name)) {
+    return;
+  }
+
+  // If this is an existing entity, delete existing field collection item(s).
+  //
+  // This works because $data (the entity) does not get reloaded between
+  // subsequent calls to this function. So if a field collection supports
+  // multiple values, and we are replacing old field collection items on the
+  // entity, we can see what the old ones were in $data and delete those.
+  // Creating new field collection items will not update $data, so we don't run
+  // the risk of deleting the new ones right after we create them.
+  if (empty($data->is_new)) {
+    if (!empty($data->{$field_name}[LANGUAGE_NONE])) {
+      foreach ($data->{$field_name}[LANGUAGE_NONE] as $old_fc) {
+        if (!empty($old_fc['value'])) {
+          field_collection_item_delete($old_fc['value']);
+        }
+      }
+    }
+  }
+
+  // If the field collection does not support multiple values, wrap the values
+  // in an array.
+  if (empty($field_collections[$field_name]['multiple'])) {
+    $values = array($values);
+  }
+
+  // Iterate through the values.
+  foreach ($values as $key => $value) {
+
+    // If all of the field values are empty, skip it.
+    $empty = TRUE;
+    foreach ($field_collections[$field_name]['fields'] as $field_alias => $field_info) {
+      if (!empty($value[$field_alias])) {
+        $empty = FALSE;
+        break;
+      }
+    }
+    if ($empty) {
+      continue;
+    }
+
+    // Create a new field collection item.
+    restws_field_collection_item_create($field_name, $type, $data, $value);
+  }
+}
+
+/**
+ * Create a field collection item and attach it to an entity.
+ *
+ * @param $field_name
+ *   The field collection field name.
+ * @param $entity_type
+ *   The host entity type.
+ * @param $entity
+ *   The host entity.
+ * @param $values
+ *   The field values.
+ */
+function restws_field_collection_item_create($field_name, $entity_type, $entity, $values) {
+
+  // Create a new field_collection attached to the entity.
+  $field_collection = entity_create('field_collection_item', array('field_name' => $field_name));
+  $field_collection->setHostEntity($entity_type, $entity);
+
+  // Get information about field collections.
+  $field_collections = restws_field_collection_info();
+
+  // If there are no fields in this field collection, bail.
+  if (empty($field_collections[$field_name]['fields'])) {
+    return;
+  }
+
+  // Iterate through the field collection fields.
+  foreach ($field_collections[$field_name]['fields'] as $field_alias => $field_info) {
+
+    // If no value is available for this field, skip it.
+    if (empty($values[$field_alias])) {
+      continue;
+    }
+
+    // If the value is an array, it might be an entity reference, so look for
+    // an ID.
+    if (is_array($values[$field_alias]) && !empty($values[$field_alias]['id'])) {
+      $values[$field_alias] = $values[$field_alias]['id'];
+    }
+
+    // If the field name is empty, skip it.
+    if (empty($field_info['field_name'])) {
+      continue;
+    }
+
+    // Get the values for this field.
+    $field_values = $values[$field_alias];
+
+    // If the field values are not an array, wrap it.
+    if (!is_array($field_values)) {
+      $field_values = array($field_values);
+    }
+
+    // Iterate through the field values and save them to the field collection.
+    foreach ($field_values as $key => $field_value) {
+      $field_collection->{$field_info['field_name']}[LANGUAGE_NONE][$key] = array($field_info['field_value'] => $field_value);
+    }
+  }
+
+  // Save the field collection.
+  entity_save('field_collection_item', $field_collection);
+}
+
+/**
+ * Implements hook_restws_response_alter().
+ */
+function restws_field_collection_restws_response_alter(&$response, $function, $formatName, $resourceController) {
+
+  // If this is not JSON, bail.
+  if ($formatName != 'json') {
+    return;
+  }
+
+  // If the response contains a list of entities, iterate through them and
+  // remove field collection fields from each item.
+  if (!empty($response['list'])) {
+    foreach ($response['list'] as &$item) {
+      restws_field_collection_response_remove($item);
+    }
+  }
+
+  // Otherwise, remove them from the response directly.
+  else {
+    restws_field_collection_response_remove($response);
+  }
+}
+
+/**
+ * Remove field collection fields from a restws response item.
+ *
+ * @param $item
+ *   The restws response item, passed by reference.
+ */
+function restws_field_collection_response_remove(&$item) {
+
+  // Get information about field collections.
+  $field_collections = restws_field_collection_info();
+
+  // Remove field collection fields from the item.
+  foreach ($field_collections as $fc_name => $fc_info) {
+    if (isset($item[$fc_name])) {
+      unset($item[$fc_name]);
+    }
+  }
+}

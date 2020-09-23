@@ -23,7 +23,6 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="9e1ef4be-e63d-4a32-ab71-f024d431274b" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/.directory" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/README.txt" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/db/aria_log.00000001" afterDir="false" />
@@ -562,6 +561,7 @@
       <change afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docker-entrypoint.sh" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/www/profiles/farm" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -572,7 +572,7 @@
     <execution />
   </component>
   <component name="Git.Settings">
-    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/www/profiles/farm" />
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="PhpDebugGeneral" listening_started="true" />
   <component name="PhpServers">
@@ -656,7 +656,7 @@
       <workItem from="1599806425305" duration="3545000" />
       <workItem from="1599812668958" duration="1420000" />
       <workItem from="1600825972447" duration="192000" />
-      <workItem from="1600826632021" duration="655000" />
+      <workItem from="1600826632021" duration="1688000" />
     </task>
     <servers />
   </component>

@@ -1,0 +1,387 @@
+<?php
+/**
+ * @file
+ * Farm movement.
+ */
+
+// Include Features code.
+include_once 'farm_movement.features.inc';
+
+// Include Asset Location code.
+include_once 'farm_movement.location.inc';
+
+/**
+ * Implements hook_entity_property_info_alter().
+ */
+function farm_movement_entity_property_info_alter(&$info) {
+
+  // Add a location property to assets.
+  $info['farm_asset']['properties']['location'] = array(
+    'type' => 'list<taxonomy_term>',
+    'label' => t('Asset location'),
+    'description' => t('The area(s) where the asset is currently located.'),
+    'getter callback' => 'farm_movement_asset_location_property_get',
+    'computed' => TRUE,
+  );
+
+  // Add a geometry property to assets.
+  $info['farm_asset']['properties']['geometry'] = array(
+    'type' => 'text',
+    'label' => t('Asset geometry'),
+    'description' => t('The current geometry of the asset'),
+    'getter callback' => 'farm_movement_asset_geometry_property_get',
+    'computed' => TRUE,
+  );
+
+  // Add an assets property to areas.
+  $info['taxonomy_term']['bundles']['farm_areas']['properties']['assets'] = array(
+    'type' => 'list<farm_asset>',
+    'label' => t('Assets in area'),
+    'description' => t('A list of assets currently located in the area.'),
+    'getter callback' => 'farm_movement_area_assets_property_get',
+    'computed' => TRUE,
+  );
+}
+
+/**
+ * Getter callback for the location asset property.
+ */
+function farm_movement_asset_location_property_get($data, array $options, $name, $type, $info) {
+
+  // If the asset doesn't have an ID, bail.
+  if (empty($data->id)) {
+    return array();
+  }
+
+  // Look up the asset location.
+  $areas = farm_movement_asset_location($data);
+
+  // Return the areas.
+  return $areas;
+}
+
+/**
+ * Getter callback for the geometry asset property.
+ */
+function farm_movement_asset_geometry_property_get($data, array $options, $name, $type, $info) {
+
+  // If the asset doesn't have an ID, bail.
+  if (empty($data->id)) {
+    return array();
+  }
+
+  // Look up the asset geometry.
+  $geometry = farm_movement_asset_geometry($data);
+
+  // Return the geometry.
+  return $geometry;
+}
+
+/**
+ * Getter callback for the area assets property.
+ */
+function farm_movement_area_assets_property_get($data, array $options, $name, $type, $info) {
+
+  // If the area doesn't have an ID, bail.
+  if (empty($data->tid)) {
+    return array();
+  }
+
+  // Load assets in this area.
+  $assets = farm_movement_area_assets($data);
+
+  // Strip the array keys.
+  $assets = array_values($assets);
+
+  // Return the assets.
+  return $assets;
+}
+
+function farm_movement_farm_ui_entity_view_groups() {
+  $groups = array(
+    'assets_history' => array(
+      'title' => t('History of Assets'),
+      'weight' => 101,
+      'collapse' => TRUE,
+    ),
+  );
+  return $groups;
+}
+
+/**
+ * Implements hook_farm_ui_entity_views().
+ */
+function farm_movement_farm_ui_entity_views($entity_type, $bundle, $entity) {
+  $views = array();
+
+  // Add asset movements View at the bottom of assets.
+  if ($entity_type == 'farm_asset') {
+    $views[] = array(
+      'name' => 'farm_movement_log',
+      'group' => 'logs_special',
+      'weight' => 100,
+    );
+  }
+
+  // Add area asset history View at the bottom of areas.
+  elseif ($entity_type == 'taxonomy_term' && $entity->vocabulary_machine_name == 'farm_areas') {
+    $views[] = array(
+      'name' => 'farm_area_assets',
+      'group' => 'assets_history',
+      'weight' => 100,
+      'always' => TRUE,
+    );
+  }
+
+  return $views;
+}
+
+/**
+ * Implements hook_restws_field_collection_info().
+ */
+function farm_movement_restws_field_collection_info() {
+  return array(
+    'field_farm_movement' => array(
+      'alias' => 'movement',
+      'label' => t('Movement'),
+      'fields' => array(
+        'area' => array(
+          'field_name' => 'field_farm_move_to',
+          'field_label' => t('Area'),
+          'field_type' => 'taxonomy_term',
+          'field_value' => 'tid',
+          'multiple' => TRUE,
+        ),
+        'geometry' => array(
+          'field_name' => 'field_farm_geofield',
+          'field_label' => t('Geometry'),
+          'field_type' => 'text',
+          'field_value' => 'geom',
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_farm_map_entity_geometries().
+ */
+function farm_movement_farm_map_entity_geometries($entity_type, $entity) {
+  $geometries = array();
+
+  // If there is no movement field, bail.
+  if (empty($entity->field_farm_movement)) {
+    return;
+  }
+
+  // Load an entity metadata wrapper.
+  $entity_wrapper = entity_metadata_wrapper($entity_type, $entity);
+
+  // If the movement field collection doesn't exist, bail.
+  if (!isset($entity_wrapper->field_farm_movement) || empty($entity_wrapper->field_farm_movement->value())) {
+    return;
+  }
+
+  // If there is no geometry, bail.
+  if (empty($entity_wrapper->field_farm_movement->field_farm_geofield)) {
+    return;
+  }
+
+  // Load movement geometry.
+  $geometries['movement'] = $entity_wrapper->field_farm_movement->field_farm_geofield[0]->value()['geom'];
+
+  return $geometries;
+}
+
+/**
+ * Implements hook_entity_presave().
+ */
+function farm_movement_entity_presave($entity, $type) {
+
+  // When a movement field collection entity is being saved, populate the
+  // geometry field from the "move to" area reference field.
+  if ($type == 'field_collection_item' && $entity->field_name == 'field_farm_movement') {
+    farm_movement_populate_geometry($entity);
+  }
+
+  // If an activity log is being saved with movement information, auto-fill the
+  // log title.
+  if ($type == 'log' && $entity->type == 'farm_activity') {
+    farm_movement_populate_name($entity);
+  }
+}
+
+/**
+ * Helper function for populating a movement field collection geometry from the
+ * "move to" area reference field.
+ *
+ * @param Entity $entity
+ *   The entity to act upon.
+ *
+ * @see farm_log_entity_presave().
+ */
+function farm_movement_populate_geometry($entity) {
+
+  // Define the area field name.
+  $area_field = 'field_farm_move_to';
+
+  // If the log doesn't have an area reference field, bail.
+  if (!isset($entity->{$area_field})) {
+    return;
+  }
+
+  // If a geometry is already defined, bail.
+  if (!empty($entity->field_farm_geofield[LANGUAGE_NONE][0]['geom'])) {
+    return;
+  }
+
+  // Load the area(s) referenced by the area reference field.
+  $area_ids = array();
+  if (!empty($entity->{$area_field}[LANGUAGE_NONE])) {
+    foreach ($entity->{$area_field}[LANGUAGE_NONE] as $area_reference) {
+      if (!empty($area_reference['tid'])) {
+        $area_ids[] = $area_reference['tid'];
+      }
+    }
+  }
+
+  // Extract geometries from the areas.
+  $geoms = farm_area_extract_geoms($area_ids);
+
+  // Populate the geofield.
+  farm_map_geofield_populate($entity, $geoms);
+}
+
+/**
+ * Helper function for populating a log's name when it contains movement info.
+ *
+ * @param Entity $log
+ *   The log entity.
+ */
+function farm_movement_populate_name($log) {
+
+  // If the log already has a name, bail.
+  if (!empty($log->name)) {
+    return;
+  }
+
+  // Create an entity wrapper for the log.
+  $log_wrapper = entity_metadata_wrapper('log', $log);
+
+  // If there are no assets, bail.
+  if (empty($log_wrapper->field_farm_asset)) {
+    return;
+  }
+
+  // If the movement field collection doesn't exist, bail.
+  if (!isset($log_wrapper->field_farm_movement) || empty($log_wrapper->field_farm_movement->value())) {
+    return;
+  }
+
+  // If there are no "movement to" areas, bail.
+  if (empty($log_wrapper->field_farm_movement->field_farm_move_to)) {
+    return;
+  }
+
+  // If there are more than one assets, summarize.
+  $asset_names = '';
+  $count_assets = count($log_wrapper->field_farm_asset);
+  if ($count_assets > 1) {
+    $asset_names .= $log_wrapper->field_farm_asset[0]->name->value() . ' (+ ' . ($count_assets - 1) . ' ' . t('more') . ')';
+  }
+  else {
+    $asset_names .= $log_wrapper->field_farm_asset[0]->name->value();
+  }
+
+  // If there are more than one areas, summarize.
+  $area_names = '';
+  $count_areas = count($log_wrapper->field_farm_movement->field_farm_move_to);
+  if ($count_areas > 1) {
+    $area_names .= $log_wrapper->field_farm_movement->field_farm_move_to[0]->name->value() . ' (+ ' . ($count_areas - 1) . ' ' . t('more') . ')';
+  }
+  else {
+    $area_names .= $log_wrapper->field_farm_movement->field_farm_move_to[0]->name->value();
+  }
+
+  // Build the log name.
+  $log->name = t('Move') . ' ' . $asset_names . ' to ' . $area_names;
+}
+
+/**
+ * Implements hook_entity_view_alter().
+ */
+function farm_movement_entity_view_alter(&$build, $type) {
+
+  // If it's not a farm_asset, or if the entity object is not available, bail.
+  if ($type != 'farm_asset' || empty($build['#entity'])) {
+    return;
+  }
+
+  // Generate markup to describe the location.
+  $output = farm_movement_asset_location_markup($build['#entity']);
+
+  // Add it to the build array.
+  $build['location'] = array(
+    '#markup' => $output,
+    '#prefix' => '<div class="location">',
+    '#suffix' => '</div>',
+    '#weight' => -100,
+  );
+}
+
+/**
+ * Implements hook_preprocess_field().
+ */
+function farm_movement_preprocess_field(&$vars) {
+
+  // If this is the "Movement to" field, add "from" information.
+  if (!empty($vars['element']['#field_name']) && $vars['element']['#field_name'] == 'field_farm_move_to') {
+
+    // Get the log entity from the field collection.
+    $log = $vars['element']['#object']->hostEntity();
+
+    // If a log entity isn't available, bail.
+    if (empty($log)) {
+      return;
+    }
+
+    // Get the log entity and metadata wrapper.
+    $log_wrapper = entity_metadata_wrapper('log', $log);
+
+    // Load all the assets referenced by this log.
+    $assets = $log_wrapper->field_farm_asset->value();
+
+    // If there are no assets, bail.
+    if (empty($assets)) {
+      return;
+    }
+
+    // Subtract one from the log's timestamp, so we can find the most recent
+    // movement BEFORE this one.
+    $previous_timestamp = $log->timestamp - 1;
+
+    // Include done and not done movements.
+    $done = NULL;
+
+    // Look up the previous location(s) of the asset(s) and build a list of
+    // unique area links.
+    $from_areas = array();
+    foreach ($assets as $asset) {
+      $areas = farm_movement_asset_location($asset, $previous_timestamp, $done);
+      foreach ($areas as $area) {
+        if (empty($from_areas[$area->tid])) {
+          $from_areas[$area->tid] = l($area->name, 'taxonomy/term/' . $area->tid);
+        }
+      }
+    }
+
+    // If no areas were found, bail.
+    if (empty($from_areas)) {
+      return;
+    }
+
+    // Append links to the field.
+    $from_areas = implode(', ', $from_areas);
+    $vars['items'][0]['#suffix'] = ' (' . t('from !areas', array('!areas' => $from_areas)) . ')';
+  }
+}

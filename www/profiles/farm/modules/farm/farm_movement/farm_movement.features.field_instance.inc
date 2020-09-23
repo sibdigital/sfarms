@@ -1,0 +1,108 @@
+<?php
+/**
+ * @file
+ * farm_movement.features.field_instance.inc
+ */
+
+/**
+ * Implements hook_field_default_field_instances().
+ */
+function farm_movement_field_default_field_instances() {
+  $field_instances = array();
+
+  // Exported field_instance:
+  // 'field_collection_item-field_farm_movement-field_farm_geofield'.
+  $field_instances['field_collection_item-field_farm_movement-field_farm_geofield'] = array(
+    'bundle' => 'field_farm_movement',
+    'default_value' => NULL,
+    'deleted' => 0,
+    'description' => 'Это поле позволяет дополнительно указать более точную геометрию для нового расположения активов. Если вы оставите его пустым, геометрия будет скопирована из областей, в которые перемещаются активы (если они доступны).',
+    'display' => array(
+      'default' => array(
+        'label' => 'above',
+        'module' => 'farm_map_geofield',
+        'settings' => array(),
+        'type' => 'farm_map_geofield',
+        'weight' => 2,
+      ),
+    ),
+    'entity_type' => 'field_collection_item',
+    'field_name' => 'field_farm_geofield',
+    'label' => 'Геометрия движений',
+    'required' => 0,
+    'settings' => array(
+      'user_register_form' => FALSE,
+    ),
+    'widget' => array(
+      'active' => 1,
+      'module' => 'farm_map_geofield',
+      'settings' => array(
+        'delta_handling' => 'default',
+        'geocoder_field' => 'field_farm_move_to',
+        'geocoder_handler' => 'bing',
+        'handler_settings' => array(
+          'google' => array(
+            'all_results' => 0,
+            'biasing' => array(
+              'bounds' => '',
+              'components' => '',
+              'region' => '',
+            ),
+            'geometry_type' => 'point',
+            'reject_results' => array(
+              'APPROXIMATE' => 0,
+              'GEOMETRIC_CENTER' => 0,
+              'RANGE_INTERPOLATED' => 0,
+              'ROOFTOP' => 0,
+            ),
+          ),
+        ),
+        'latlng_override' => 0,
+        'use_geocoder' => 0,
+      ),
+      'type' => 'farm_map_geofield',
+      'weight' => 3,
+    ),
+  );
+
+  // Exported field_instance:
+  // 'field_collection_item-field_farm_movement-field_farm_move_to'.
+  $field_instances['field_collection_item-field_farm_movement-field_farm_move_to'] = array(
+    'bundle' => 'field_farm_movement',
+    'default_value' => NULL,
+    'deleted' => 0,
+    'description' => 'Укажите область(области), в которую перемещаются активы. Если вам нужно указать более точные местоположения (в дополнение к этим областям), используйте поле геометрии ниже.',
+    'display' => array(
+      'default' => array(
+        'label' => 'inline',
+        'module' => 'taxonomy',
+        'settings' => array(),
+        'type' => 'taxonomy_term_reference_link',
+        'weight' => 0,
+      ),
+    ),
+    'entity_type' => 'field_collection_item',
+    'field_name' => 'field_farm_move_to',
+    'label' => 'Движение',
+    'required' => 0,
+    'settings' => array(
+      'user_register_form' => FALSE,
+    ),
+    'widget' => array(
+      'active' => 1,
+      'module' => 'options',
+      'settings' => array(),
+      'type' => 'options_select',
+      'weight' => 0,
+    ),
+  );
+
+  // Translatables
+  // Included for use with string extractors like potx.
+  t('Movement geometry');
+  t('Movement to');
+  t('Specify the area(s) that assets are being moved to. If you need to specify more precise locations (in addition to these areas), use the Geometry field below.');
+  t('This field allows you to optionally specify a more precise geometry for the new location of assets. If you leave it blank, the geometry will be copied from the areas that assets are moving to (if available).');
+
+  return $field_instances;
+}

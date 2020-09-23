@@ -1,0 +1,13 @@
+name = restws OAuth2 Server
+description = Authenticate OAuth2 requests with the Drupal RESTful Web Services module
+core = 7.x
+dependencies[] = oauth2_server
+dependencies[] = restws
+
+configure = admin/config/services/restws_oauth2_server
+
+; Information added by Drupal.org packaging script on 2020-05-20
+version = "7.x-1.0-beta3"
+core = "7.x"
+project = "restws_oauth2_server"
+datestamp = "1590004934"

@@ -1,0 +1,25 @@
+<?php
+/**
+ * @file
+ * Code for the Farm Log: Activity feature.
+ */
+
+// Include Features code.
+include_once 'farm_log_activity.features.inc';
+
+/**
+ * Implements hook_farm_ui_entities().
+ */
+function farm_log_activity_farm_ui_entities() {
+  return array(
+    'log' => array(
+      'farm_activity' => array(
+        'label' => t('Activity'),
+        'label_plural' => t('Activities'),
+        'view' => 'farm_log_activity',
+        'areas' => TRUE,
+        'weight' => -10,
+      ),
+    ),
+  );
+}

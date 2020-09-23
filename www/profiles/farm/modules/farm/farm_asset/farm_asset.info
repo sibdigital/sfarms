@@ -1,0 +1,9 @@
+name = Farm Asset
+description = A farm asset entity type.
+core = 7.x
+package = farmOS
+dependencies[] = entity
+files[] = farm_asset.class.inc
+files[] = includes/feeds/plugins/FarmAssetProcessor.inc
+files[] = includes/views/handlers/farm_asset_handler_relationship_entity_reverse.inc
+files[] = includes/views/plugins/farm_asset_plugin_argument_validate_farm_asset.inc

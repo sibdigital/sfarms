@@ -1,0 +1,199 @@
+<?php
+/**
+ * @file
+ * Code for the Farm Crop feature.
+ */
+
+include_once 'farm_crop.features.inc';
+
+/**
+ * Implements hook_help().
+ */
+function farm_crop_help($path, $arg) {
+
+  // View of Plantings.
+  if ($path == 'farm/assets/plantings') {
+    return t('Plantings can be used to represent groups of plants (eg: a field of corn, or a group of seedlings), or they can be used to represent individual plants (eg: in the case of nurseries). For more information, see the <a href="@plantings_doc_url">Plantings</a> documentation.', array('@plantings_doc_url' => url('https://farmOS.org/guide/assets/plantings')));
+  }
+
+  // View of Seedings.
+  elseif ($path == 'farm/logs/seedings') {
+    return t('Seeding logs represent when <a href="@plantings_url">Planting assets</a> are seeded directly into the ground (or into containers). For more information, see the <a href="@plantings_doc_url">Plantings</a> documentation.', array('@plantings_url' => url('farm/assets/plantings'), '@plantings_doc_url' => url('https://farmOS.org/guide/assets/plantings')));
+  }
+
+  // View of Transplantings.
+  elseif ($path == 'farm/logs/transplantings') {
+    return t('Transplanting logs represent when <a href="@plantings_url">Planting assets</a> are transplanted from one place to another. For more information, see the <a href="@plantings_doc_url">Plantings</a> documentation.', array('@plantings_url' => url('farm/assets/plantings'), '@plantings_doc_url' => url('https://farmOS.org/guide/assets/plantings')));
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function farm_crop_form_farm_asset_form_alter(&$form, &$form_state, $form_id) {
+
+  // Get the farm asset entity from the form.
+  $asset = $form['farm_asset']['#value'];
+
+  // If the asset is not a planting, bail.
+  if (empty($asset->type) || $asset->type != 'planting') {
+    return;
+  }
+
+  // If this is a new planting form, display a link to the planting quick form
+  // for convenience.
+  if (!empty($form['farm_asset']['#value']->is_new)) {
+    drupal_set_message(t('Tip: Use the <a href="@path">Planting Quick Form</a> to quickly record a planting and create seedings and other logs associated with it in one step.', array('@path' => url('farm/quick/planting'))));
+  }
+}
+
+/**
+ * Implements hook_farm_ui_entities().
+ */
+function farm_crop_farm_ui_entities() {
+  return array(
+    'farm_asset' => array(
+      'planting' => array(
+        'label' => t('Planting'),
+        'label_plural' => t('Plantings'),
+        'view' => 'farm_plantings',
+      ),
+    ),
+    'log' => array(
+      'farm_seeding' => array(
+        'label' => t('Seeding'),
+        'label_plural' => t('Seedings'),
+        'view' => 'farm_log_seeding',
+        'farm_asset' => 'planting',
+        'areas' => TRUE,
+        'weight' => -90,
+      ),
+      'farm_transplanting' => array(
+        'label' => t('Transplanting'),
+        'label_plural' => t('Transplantings'),
+        'view' => 'farm_log_transplanting',
+        'farm_asset' => 'planting',
+        'areas' => TRUE,
+        'weight' => -80,
+      ),
+    ),
+    'taxonomy_term' => array(
+      'farm_crops' => array(
+        'label' => t('Сельскохозяйственная культура'),
+        'label_plural' => t('Crops/varieties'),
+        'view' => 'farm_crops',
+        'farm_asset' => 'planting',
+        'asset_view_arg' => 2,
+      ),
+      'farm_crop_families' => array(
+        'label' => t('Crop Family'),
+        'label_plural' => t('Crop Families'),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_farm_ui_entity_views().
+ */
+function farm_crop_farm_ui_entity_views($entity_type, $bundle, $entity) {
+  $views = array();
+
+  // If the entity is a taxonomy_term...
+  if ($entity_type == 'taxonomy_term') {
+    switch ($entity->vocabulary_machine_name) {
+
+      // Farm crop family.
+      case 'farm_crop_families':
+        $views[] = 'farm_crops';
+        break;
+    }
+  }
+
+  return $views;
+}
+
+/**
+ * Implements hook_farm_log_categories().
+ */
+function farm_crop_farm_log_categories() {
+
+  // Provide an "Plantings" log category.
+  return array('Plantings');
+}
+
+/**
+ * Implements hook_farm_log_categories_populate().
+ */
+function farm_crop_farm_log_categories_populate($log) {
+  $categories = array();
+  if (in_array($log->type, array('farm_seeding', 'farm_transplanting'))) {
+    $categories[] = 'Plantings';
+  }
+  return $categories;
+}
+
+/**
+ * Implements hook_feeds_importer_default_alter().
+ */
+function farm_crop_feeds_importer_default_alter(&$importers) {
+
+  // Add extra field mappings to plantings.
+  $name = 'farm_asset_planting';
+  if (!empty($importers[$name])) {
+    $mappings = array(
+      array(
+        'source' => 'Культура/сорт',
+        'target' => 'field_farm_crop',
+        'term_search' => '0',
+        'autocreate' => 1,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Season',
+        'target' => 'field_farm_season',
+        'term_search' => '0',
+        'autocreate' => 1,
+        'language' => 'und',
+      ),
+    );
+    $importer_mappings =& $importers[$name]->config['processor']['config']['mappings'];
+    $importer_mappings = array_merge($importer_mappings, $mappings);
+  }
+
+  // Add extra field mappings to seedings.
+  $name = 'log_farm_seeding';
+  if (!empty($importers[$name])) {
+    $mappings = array(
+      array(
+        'source' => 'Source/supplier',
+        'target' => 'field_farm_seed_source',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+    );
+    $importer_mappings =& $importers[$name]->config['processor']['config']['mappings'];
+    $importer_mappings = array_merge($importer_mappings, $mappings);
+  }
+}
+
+/**
+ * Implements hook_feeds_tamper_default_alter().
+ */
+function farm_crop_feeds_tamper_default_alter(&$feeds_tampers) {
+
+  // If farm_import is not installed, bail.
+  if (!module_exists('farm_import')) {
+    return;
+  }
+
+  // Make crop/variety required.
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'animal', 'Crop/variety', 'required');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+
+  // Explode crop/variety so it supports multiple values, and trim whitespace.
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'planting', 'Crop/variety', 'explode');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'planting', 'Crop/variety', 'trim');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+}

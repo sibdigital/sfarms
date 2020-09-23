@@ -1,0 +1,304 @@
+<?php
+/**
+ * @file
+ * Code for the Farm Soil NRCS feature.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function farm_soil_nrcs_menu() {
+  $items['farm/soil/nrcs/stir/autocomplete'] = array(
+    'page callback' => 'farm_soil_nrcs_stir_autocomplete',
+    'page arguments' => array(5),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+/**
+ * Autocomplete callback for STIR operations.
+ */
+function farm_soil_nrcs_stir_autocomplete($string) {
+  $matches = array();
+  $query = db_select('farm_soil_nrcs_stir', 'fsns');
+  $query->fields('fsns', array('operation'));
+  $query->condition('fsns.operation', '%' . db_like($string) . '%', 'LIKE');
+  $query->range(0, 10);
+  $result = $query->execute();
+  foreach ($result as $row) {
+    $matches[$row->operation] = check_plain($row->operation);
+  }
+  drupal_json_output($matches);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function farm_soil_nrcs_form_farm_soil_disturbance_form_alter(&$form, &$form_state, $form_id) {
+
+  // Alter the "Activity" field.
+  if (!empty($form['disturbance']['disturbance']['activity'])) {
+
+    // Add to the description.
+    $description = t('As you type, a list of pre-defined operations will be available to select from. Click on the operation from the dropdown to select it and the "STIR" field below will be filled in automatically.');
+    $form['disturbance']['disturbance']['activity']['#description'] = $form['disturbance']['disturbance']['activity']['#description'] . ' ' . $description;
+
+    // Add autocomplete to the "Activity" field that shows operations from
+    // the {farm_soil_nrcs_stir} table.
+    $form['disturbance']['disturbance']['activity']['#autocomplete_path'] = 'farm/soil/nrcs/stir/autocomplete';
+
+    // Add ajax to regenerate the stir field below.
+    $form['disturbance']['disturbance']['activity']['#ajax'] = array(
+      'callback' => 'farm_soil_nrcs_stir_value_ajax',
+      'wrapper' => 'stir-value',
+    );
+  }
+
+  // Add a field for the STIR value, auto-populated based on the activity.
+  $stir = '';
+  if (!empty($form_state['values']['disturbance']['disturbance']['activity'])) {
+    $result = db_query('SELECT stir FROM {farm_soil_nrcs_stir} WHERE operation = :operation', array(':operation' => $form_state['values']['disturbance']['disturbance']['activity']))->fetchField();
+    if (!empty($result)) {
+      $stir = $result;
+
+      // Remove trailing zeros by converting to a PHP float.
+      $stir = (float)$stir;
+
+      // Unset the STIR field input value so that it can be replaced via ajax.
+      unset($form_state['input']['disturbance']['disturbance']['stir']);
+    }
+  }
+  $form['disturbance']['disturbance']['stir'] = array(
+    '#type' => 'textfield',
+    '#title' => t('STIR value'),
+    '#description' => t('Enter the Soil Tillage Intensity Rating (STIR), calculated using the Revised Universal Soil Loss Equation, Version 2 (RUSLE2). This will be automatically populated if you select a pre-determined operation in the activity field above.'),
+    '#element_validate' => array('element_validate_number'),
+    '#default_value' => $stir,
+    '#prefix' => '<div id="stir-value">',
+    '#suffix' => '</div>',
+  );
+
+  // Add a submit function to save the STIR value to the log.
+  $form['#submit'][] = 'farm_soil_nrcs_disturbance_form_stir_submit';
+}
+
+/**
+ * Ajax callback for STIR value lookup.
+ */
+function farm_soil_nrcs_stir_value_ajax($form, &$form_state) {
+  return $form['disturbance']['disturbance']['stir'];
+}
+
+/**
+ * Submit function for saving the STIR value in soil disturbance quick form.
+ */
+function farm_soil_nrcs_disturbance_form_stir_submit($form, &$form_state) {
+
+  // If no STIR value was entered, bail.
+  if (empty($form_state['values']['disturbance']['disturbance']['stir'])) {
+    return;
+  }
+
+  // Get the log that was saved by the quick form. Bail if not found.
+  if (empty($form_state['storage']['log'])) {
+    return;
+  }
+  $log = $form_state['storage']['log'];
+
+  // Create a measurement for the STIR value.
+  $measurements = array();
+  $measurements[] = array(
+    'measure' => 'rating',
+    'value' => $form_state['values']['disturbance']['disturbance']['stir'],
+    'units' => '',
+    'label' => 'STIR',
+  );
+
+  // Add the measurement to the log.
+  farm_quantity_log_add_measurements($log, $measurements);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function farm_soil_nrcs_form_log_form_alter(&$form, &$form_state, $form_id) {
+
+  // Only act on the soil test log form.
+  if ($form['#bundle'] != 'farm_soil_test') {
+    return;
+  }
+
+  // Add the Farm Soil NRCS soil name lookup button.
+  farm_soil_nrcs_soil_name_lookup_button($form, $form_state);
+}
+
+/**
+ * Adds a "Look up soil names" button to a form. The form should contain a
+ * geofield and a text field for storing the names.
+ *
+ * This can be added to a form that has the necessary fields via
+ * hook_form_alter(). See the this module's hook_form_alter() for an example,
+ * which adds the button to the soil test log form.
+ *
+ * @param array $form
+ *   The form array to be altered.
+ * @param array $form_state
+ *   The form state array.
+ */
+function farm_soil_nrcs_soil_name_lookup_button(&$form, &$form_state) {
+
+  // Define the field names.
+  $geofield = 'field_farm_geofield';
+  $textfield = 'field_farm_soil_names';
+
+  // If the geofield or textfield don't exist, bail.
+  if (empty($form[$geofield]) || empty($form[$textfield])) {
+    return;
+  }
+
+  // Add a wrapper around the text field so we can replace it with AJAX.
+  $form[$textfield]['#prefix'] = '<div id="soil-names">';
+  $form[$textfield]['#suffix'] = '</div>';
+
+  // Add an AJAX button below the text field.
+  $form[$textfield]['soil_name_lookup'] = array(
+    '#type' => 'submit',
+    '#value' => t('Look up soil names'),
+    '#submit' => array('farm_soil_nrcs_soil_name_lookup_submit'),
+    // No need to validate when submitting this.
+    '#limit_validation_errors' => array(),
+    '#ajax' => array(
+      'callback' => 'farm_soil_nrcs_soil_name_lookup_ajax',
+      'wrapper' => 'soil-names',
+    ),
+  );
+}
+
+/**
+ * Ajax callback for soil name lookup.
+ *
+ * @param array $form
+ *   The form array.
+ * @param array $form_state
+ *   The form state array.
+ *
+ * @return array
+ *   Returns the part of the form that will be replaced via AJAX.
+ */
+function farm_soil_nrcs_soil_name_lookup_ajax($form, $form_state) {
+  $textfield = 'field_farm_soil_names';
+  return $form[$textfield];
+}
+
+/**
+ * Submit function for auto-populating the Soil Names field.
+ *
+ * @param array $form
+ *   The form array.
+ * @param array $form_state
+ *   The form state array.
+ */
+function farm_soil_nrcs_soil_name_lookup_submit($form, &$form_state) {
+
+  // Start with an empty array of soil names.
+  $soil_names = array();
+
+  // Grab the geometry from the geofield input.
+  if (!empty($form_state['input']['field_farm_geofield'][LANGUAGE_NONE][0]['geom'])) {
+    $wkt = $form_state['input']['field_farm_geofield'][LANGUAGE_NONE][0]['geom'];
+  }
+
+  // Request soil names from the NRCS.
+  if (!empty($wkt)) {
+    $soil_names = farm_soil_nrcs_soil_name_lookup($wkt);
+  }
+
+  // If no soil names were returned, print a message.
+  if (empty($soil_names)) {
+    drupal_set_message(t('Soil names could not be found. Add points to the "Sample points" map above and try again.'), 'warning');
+  }
+
+  // If any of the soil names contain commas, wrap them in double-quotes.
+  foreach ($soil_names as &$name) {
+    if (strpos($name, ',') !== FALSE) {
+      $name = '"' . $name . '"';
+    }
+  }
+
+  // Add the soil names to the input.
+  $form_state['input']['field_farm_soil_names'][LANGUAGE_NONE] = implode(', ', $soil_names);
+
+  // Rebuild the form.
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Send a request to the NRCS server to get names of soils, given a string of
+ * Well-Known Text.
+ *
+ * @param string $wkt
+ *   The Well-Known Text representation of the geometry to query.
+ *
+ * @return array
+ *   Returns an array of soil names.
+ */
+function farm_soil_nrcs_soil_name_lookup($wkt) {
+
+  // Start an empty array.
+  $soil_names = array();
+
+  // Assemble the query.
+  $query = "SELECT MU.muname, MU.musym, MU.nationalmusym FROM SDA_Get_Mukey_from_intersection_with_WktWgs84('" . $wkt . "') K LEFT JOIN mapunit MU ON K.mukey = MU.mukey";
+
+  // Build the request.
+  $url = 'http://sdmdataaccess.sc.egov.usda.gov/tabular/post.rest';
+  $params = array(
+    'query' => $query,
+    'format' => 'json',
+  );
+  $options = array(
+    'method' => 'POST',
+    'data' => json_encode($params),
+    'headers' => array(
+      'Content-Type' => 'application/json',
+      'Accept' => 'application/json',
+    ),
+  );
+
+  // Send the request and get a response.
+  $response = drupal_http_request($url, $options);
+
+  // Decode the JSON data.
+  $data = json_decode($response->data);
+
+  // If the data is empty, bail.
+  if (empty($data) || empty($data->Table) || !is_array($data->Table)) {
+    return $soil_names;
+  }
+
+  // Process the data into an array of soil names.
+  foreach ($data->Table as $row) {
+    $soil_name = '';
+    $soil_symbols = array();
+    if (!empty($row[0])) {
+      $soil_name .= $row[0];
+    }
+    if (!empty($row[1])) {
+      $soil_symbols[] = $row[1];
+    }
+    if (!empty($row[2])) {
+      $soil_symbols[] = $row[2];
+    }
+    if (!empty($soil_symbols)) {
+      $soil_name .= ' (' . implode('/', $soil_symbols) . ')';
+    }
+    if (!empty($soil_name)) {
+      $soil_names[] = $soil_name;
+    }
+  }
+
+  // Return the array of soil names.
+  return $soil_names;
+}

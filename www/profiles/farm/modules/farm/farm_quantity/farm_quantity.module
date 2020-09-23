@@ -1,0 +1,335 @@
+<?php
+/**
+ * @file
+ * Farm quantity module.
+ */
+
+// Include Features code.
+include_once 'farm_quantity.features.inc';
+
+/**
+ * Implements hook_farm_info().
+ */
+function farm_quantity_farm_info() {
+  return array(
+    'system_of_measurement' => farm_quantity_system_of_measurement(),
+  );
+}
+
+/**
+ * Implements hook_farm_ui_entities().
+ */
+function farm_quantity_farm_ui_entities() {
+  return array(
+    'taxonomy_term' => array(
+      'farm_quantity_units' => array(
+        'label' => t('Quantity unit'),
+        'label_plural' => t('Quantity units'),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_restws_field_collection_info().
+ */
+function farm_quantity_restws_field_collection_info() {
+  return array(
+    'field_farm_quantity' => array(
+      'alias' => 'quantity',
+      'label' => t('Quantity'),
+      'multiple' => TRUE,
+      'fields' => array(
+        'measure' => array(
+          'field_name' => 'field_farm_quantity_measure',
+          'field_label' => t('Measure'),
+          'field_type' => 'text',
+          'field_value' => 'value',
+        ),
+        'value' => array(
+          'field_name' => 'field_farm_quantity_value',
+          'field_label' => t('Value'),
+          'field_type' => 'decimal',
+          'field_value' => 'decimal',
+        ),
+        'unit' => array(
+          'field_name' => 'field_farm_quantity_units',
+          'field_label' => t('Unit'),
+          'field_type' => 'taxonomy_term',
+          'field_value' => 'tid',
+        ),
+        'label' => array(
+          'field_name' => 'field_farm_quantity_label',
+          'field_label' => t('Label'),
+          'field_type' => 'text',
+          'field_value' => 'value',
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_permission().
+ */
+function farm_quantity_permission() {
+  $perms = array(
+    'administer farm_quantity module' => array(
+      'title' => t('Administer farm quantity module'),
+    ),
+  );
+  return $perms;
+}
+
+/**
+ * Implements hook_farm_access_perms().
+ */
+function farm_quantity_farm_access_perms($role) {
+  $perms = array();
+
+  // Load the list of farm roles.
+  $roles = farm_access_roles();
+
+  // If this role has 'config' access, grant access to quantity configuration.
+  if (!empty($roles[$role]['access']['config'])) {
+    $perms[] = 'administer farm_quantity module';
+  }
+
+  return $perms;
+}
+
+/**
+ * Implements hook_menu().
+ */
+function farm_quantity_menu() {
+
+  // Quantity configuration form.
+  $items['admin/config/farm/quantity'] = array(
+    'title' => 'Quantity',
+    'description' => 'Quantity configuration settings.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('farm_quantity_settings_form'),
+    'access arguments' => array('administer farm_quantity module'),
+  );
+
+  return $items;
+}
+
+/**
+ * Quantity settings form.
+ */
+function farm_quantity_settings_form($form, &$form_state) {
+
+  // Metric or US/Imperial.
+  $form['farm_quantity_unit_system'] = array(
+    '#type' => 'radios',
+    '#title' => t('System of measurement'),
+    '#description' => t('Select the system of measurement you would like to use in farmOS. Changing this setting after data has been entered is not recommended.'),
+    '#options' => array(
+      'metric' => t('Metric'),
+      'us' => t('US/Imperial'),
+    ),
+    '#default_value' => farm_quantity_system_of_measurement(),
+  );
+
+  // Return it as a system settings form.
+  return system_settings_form($form);
+}
+
+/**
+ * Helper function for loading the default system of measurement.
+ *
+ * @return string
+ *   Returns either 'metric' or 'us' (defaults to 'metric').
+ */
+function farm_quantity_system_of_measurement() {
+  return variable_get('farm_quantity_unit_system', 'metric');
+}
+
+/**
+ * Define information about available quantity measures.
+ *
+ * @return array
+ *   Returns an array of measure information.
+ */
+function farm_quantity_measures() {
+  return array(
+    'count' => array(
+      'label' => t('Count'),
+    ),
+    'length' => array(
+      'label' => t('Length/depth'),
+    ),
+    'weight' => array(
+      'label' => t('Weight'),
+    ),
+    'area' => array(
+      'label' => t('Area'),
+    ),
+    'volume' => array(
+      'label' => t('Volume'),
+    ),
+    'time' => array(
+      'label' => t('Time'),
+    ),
+    'temperature' => array(
+      'label' => t('Temperature'),
+    ),
+    'pressure' => array(
+      'label' => t('Pressure'),
+    ),
+    'water_content' => array(
+      'label' => t('Water content'),
+    ),
+    'value' => array(
+      'label' => t('Value'),
+    ),
+    'rate' => array(
+      'label' => t('Rate'),
+    ),
+    'rating' => array(
+      'label' => t('Rating'),
+    ),
+    'ratio' => array(
+      'label' => t('Ratio'),
+    ),
+    'probability' => array(
+      'label' => t('Probability'),
+    ),
+  );
+}
+
+/**
+ * Define available options for the Measure field.
+ */
+function farm_quantity_measure_options() {
+
+  // Start an empty options array.
+  $options = array();
+
+  // Load information about measures.
+  $measures = farm_quantity_measures();
+
+  // Iterate through the measures and build a list of options.
+  foreach ($measures as $measure => $data) {
+    $options[$measure] = $data['label'];
+  }
+
+  // Return the array of options.
+  return $options;
+}
+
+/**
+ * Return an array of standard unit names for given measures.
+ *
+ * @todo
+ *   This is a first step towards more complete unit management in farmOS. It
+ *   is provided as a central helper function for other modules to use as a
+ *   placeholder until then.
+ *
+ * @param string $measure
+ *   An optional measure to filter by.
+ *   See available options in farm_quantity_measures() above.
+ *
+ * @return array
+ *   Returns an array of standard unit strings for a given measure. Or an array
+ *   of all unit strings, organized into sub-arrays keyed by measure.
+ */
+function farm_quantity_units($measure = '') {
+
+  // Load the available measures.
+  $measures = farm_quantity_measures();
+
+  // Build an empty array of quantity unit sub-arrays, keyed by measure.
+  $units = array();
+  foreach ($measures as $name => $info) {
+    $units[$name] = array();
+  }
+
+  // Look up the system of measurement.
+  $system = farm_quantity_system_of_measurement();
+
+  // Depending on the system of measurement, add unit options to measures.
+  if ($system == 'metric') {
+
+    // Length units.
+    $units['length'][] = 'kilometers';
+    $units['length'][] = 'meters';
+    $units['length'][] = 'centimeters';
+
+    // Weight units.
+    $units['weight'][] = 'kilograms';
+    $units['weight'][] = 'grams';
+
+    // Area units.
+    $units['area'][] = 'hectares';
+    $units['area'][] = 'square meters';
+
+    // Volume units.
+    $units['volume'][] = 'kiloliters';
+    $units['volume'][] = 'liters';
+    $units['volume'][] = 'milliliters';
+
+    // Temperature units.
+    $units['temperature'][] = 'C';
+  }
+  elseif ($system == 'us') {
+
+    // Length units.
+    $units['length'][] = 'miles';
+    $units['length'][] = 'feet';
+    $units['length'][] = 'inches';
+
+    // Weight units.
+    $units['weight'][] = 'tons';
+    $units['weight'][] = 'lbs';
+    $units['weight'][] = 'ounces';
+
+    // Area units.
+    $units['area'][] = 'acres';
+    $units['area'][] = 'square feet';
+
+    // Volume units.
+    $units['volume'][] = 'cubic yards';
+    $units['volume'][] = 'cubic feet';
+    $units['volume'][] = 'gallons';
+    $units['volume'][] = 'quarts';
+    $units['volume'][] = 'cups';
+
+    // Temperature units.
+    $units['temperature'][] = 'F';
+  }
+
+  // Time units are independent of system.
+  $units['time'][] = 'years';
+  $units['time'][] = 'months';
+  $units['time'][] = 'weeks';
+  $units['time'][] = 'days';
+  $units['time'][] = 'hours';
+  $units['time'][] = 'minutes';
+  $units['time'][] = 'seconds';
+
+  // If a measure is specified, only return units for that measure.
+  if (!empty($measure)) {
+    if (!empty($units[$measure])) {
+      return $units[$measure];
+    }
+    else {
+      return array();
+    }
+  }
+
+  // Return all quantity units.
+  return $units;
+}
+
+/**
+ * Implements hook_preprocess_field().
+ */
+function farm_quantity_preprocess_field(&$vars) {
+
+  // Add quantity CSS when a Quantity field is displayed.
+  if (!empty($vars['element']['#field_name']) && $vars['element']['#field_name'] == 'field_farm_quantity') {
+    drupal_add_css(drupal_get_path('module', 'farm_quantity') . '/farm_quantity.css');
+  }
+}

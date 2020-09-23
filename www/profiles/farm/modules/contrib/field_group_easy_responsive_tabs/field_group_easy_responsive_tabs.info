@@ -1,0 +1,16 @@
+name = "Field Group: Easy Responsive Tabs"
+description = Adds new fieldgroup formatters for Easy Responsive Tabs to Accordion.
+package = Fields
+core = 7.x
+
+dependencies[] = field
+dependencies[] = ctools
+dependencies[] = field_group
+dependencies[] = libraries (>=2.x)
+
+; Information added by Drupal.org packaging script on 2016-04-04
+version = "7.x-1.2"
+core = "7.x"
+project = "field_group_easy_responsive_tabs"
+datestamp = "1459766042"
+

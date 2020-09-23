@@ -1,0 +1,84 @@
+<?php
+/**
+ * @file
+ * Code for the Farm Equipment feature.
+ */
+
+include_once 'farm_equipment.features.inc';
+
+/**
+ * Implements hook_farm_ui_entities().
+ */
+function farm_equipment_farm_ui_entities() {
+  return array(
+    'farm_asset' => array(
+      'equipment' => array(
+        'label' => t('Equipment'),
+        'label_plural' => t('Equipment'),
+        'view' => 'farm_equipment',
+      ),
+    ),
+    'log' => array(
+      'farm_maintenance' => array(
+        'label' => t('Maintenance'),
+        'label_plural' => t('Maintenance'),
+        'view' => 'farm_log_maintenance',
+        'farm_asset' => 'equipment',
+        'weight' => 20,
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_farm_log_categories().
+ */
+function farm_equipment_farm_log_categories() {
+
+  // Provide an "Equipment" log category.
+  return array('Equipment');
+}
+
+/**
+ * Implements hook_farm_log_categories_populate().
+ */
+function farm_equipment_farm_log_categories_populate($log) {
+  $categories = array();
+  if ($log->type == 'farm_maintenance') {
+    $categories[] = 'Equipment';
+  }
+  return $categories;
+}
+
+/**
+ * Implements hook_feeds_importer_default_alter().
+ */
+function farm_equipment_feeds_importer_default_alter($importers) {
+
+  // Add extra field mappings to equipment.
+  $name = 'farm_asset_equipment';
+  if (!empty($importers[$name])) {
+    $mappings = array(
+      array(
+        'source' => 'Manufacturer',
+        'target' => 'field_farm_manufacturer',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Model',
+        'target' => 'field_farm_model',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Serial number',
+        'target' => 'field_farm_serial_number',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+    );
+    $importer_mappings =& $importers[$name]->config['processor']['config']['mappings'];
+    $importer_mappings = array_merge($importer_mappings, $mappings);
+  }
+}

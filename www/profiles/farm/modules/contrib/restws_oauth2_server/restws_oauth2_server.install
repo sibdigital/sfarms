@@ -1,0 +1,15 @@
+<?php
+
+/**
+ * @file
+ * RESTful OAuth2 Authentication module.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function restws_oauth2_server_uninstall() {
+
+  // Delete variables.
+  variable_del('restws_oauth2_server_name');
+}

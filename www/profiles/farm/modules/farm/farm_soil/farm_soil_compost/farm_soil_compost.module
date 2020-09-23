@@ -1,0 +1,31 @@
+<?php
+/**
+ * @file
+ * Code for the Farm Soil: Compost feature.
+ */
+
+include_once 'farm_soil_compost.features.inc';
+
+/**
+ * Implements hook_farm_ui_entities().
+ */
+function farm_soil_compost_farm_ui_entities() {
+  return array(
+    'farm_asset' => array(
+      'compost' => array(
+        'label' => t('Compost'),
+        'label_plural' => t('Compost'),
+        'view' => 'farm_compost',
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_farm_log_categories().
+ */
+function farm_soil_compost_farm_log_categories() {
+
+  // Provide an "Compost" log category.
+  return array('Compost');
+}

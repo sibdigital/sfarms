@@ -1,0 +1,175 @@
+<?php
+
+/**
+ * @file
+ * RESTful OAuth2 Authentication module.
+ */
+
+/**
+ * Implements hook_init().
+ *
+ * Performs a user login from the User ID of the Authentication Token.
+ */
+function restws_oauth2_server_init() {
+
+  // Load the OAuth2 Server and Scope that are to be authenticated against.
+  $server_name = variable_get('restws_oauth2_server_name', FALSE);
+  $scope_name = "user_access";
+
+  // If the server name is not set, bail.
+  if (empty($server_name) || empty($scope_name)) {
+    return NULL;
+  }
+
+  // Only check for tokens if the user is not authenticated.
+  if (!user_is_logged_in()) {
+
+    // Check if an OAuth2 request was made.
+    $result = oauth2_server_check_access($server_name, $scope_name);
+
+    if (is_array($result) && !empty($result['user_id'])) {
+
+      // Reset the global user.
+      global $user;
+      $user = user_load($result['user_id']);
+
+      // Regenerate the session ID to prevent against session fixation attacks.
+      // This is called before hook_user in case one of those functions fails
+      // or incorrectly does a redirect which would leave the old session in place.
+      // This is copied directly from user_login_finalize(). We don't call
+      // user_login_finalize() directly here because we don't want excessive
+      // watchdog messages "Session opened for %name" on every request.
+      $edit = array('name' => $user->name);
+      drupal_session_regenerate();
+      user_module_invoke('login', $edit, $user);
+
+      // Reset the page so the user if fully authenticated.
+      if (!user_is_anonymous()) {
+        drupal_static_reset();
+
+        // Always make sure to disable the page cache after we authenticated the
+        // user so that a response never gets into the page cache.
+        drupal_page_is_cacheable(FALSE);
+
+        // Redetermine the page callback for restws calls like node/1.json
+        // and user/1.json.
+        _restws_determine_router_item();
+      }
+
+      // Or, clear the login form error and remove the login failure message.
+      else {
+        $form = &drupal_static('form_set_error', array());
+        $form = array();
+        drupal_get_messages();
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_restws_request_alter().
+ */
+function restws_oauth2_server_restws_request_alter(array &$request) {
+
+  // Disable page caching for security reasons so that an authenticated user
+  // response never gets into the page cache for anonymous users.
+  // This is necessary because the page cache system only looks at session
+  // cookies, but not at OAuth2 Authentication.
+  drupal_page_is_cacheable(FALSE);
+}
+
+/**
+ * Implements hook_oauth2_server_token().
+ */
+function restws_oauth2_server_oauth2_server_token($server, \OAuth2\Request $request, \OAuth2\Response $response) {
+
+  // If this is not a POST request, bail.
+  if (empty($request->server['REQUEST_METHOD']) || $request->server['REQUEST_METHOD'] != 'POST') {
+    return;
+  }
+
+  // Get the response code.
+  $code = $response->getStatusCode();
+
+  // If the request was successful, log basic information about it.
+  if ($code == 200) {
+
+    // Get the client_id.
+    $client_id = $request->request['client_id'];
+
+    // Get the scope.
+    $scope = $response->getParameter('scope');
+
+    // Define some basic details to include in the log entry.
+    $details = array(
+      'type' => $request->request['grant_type'],
+      'client_id' => $client_id,
+      'scope' => $scope,
+    );
+
+    // If the scope is "user_access", that means that we are logging in a user,
+    // so include the user ID.
+    if ($scope == 'user_access') {
+      $token = oauth2_server_token_load($response->getParameter('access_token'));
+      if (!empty($token->uid)) {
+        $details['uid'] = $token->uid;
+      }
+    }
+
+    // Assemble the message and arguments.
+    $message = 'OAuth2 authorization completed';
+    $arguments = array();
+    foreach ($details as $name => $argument) {
+      $message .= ', ' . $name . ': ' . '@' . $name;
+      $arguments['@' . $name] = $argument;
+    }
+  }
+
+  // Otherwise, log the error code and full response.
+  else {
+    $message = 'OAuth2 authorization failed (code @code). Response: @response';
+    $arguments = array(
+      '@code' => $code,
+      '@response' => $response->getResponseBody(),
+    );
+  }
+
+  // Log to watchdog.
+  watchdog('restws_oauth2_server', $message, $arguments);
+}
+
+/**
+ * Implements hook_menu().
+ */
+function restws_oauth2_server_menu(){
+  $items = array();
+  $items['admin/config/services/restws_oauth2_server'] = [
+    'title'            => 'restws OAuth2 Server',
+    'description'      => 'Configure OAuth2 authentication server for restws.',
+    'page callback'    => 'drupal_get_form',
+    'page arguments'   => array('restws_oauth2_server_config_form'),
+    'access arguments' => array('administer oauth2 server'),
+    'type' => MENU_NORMAL_ITEM,
+  ];
+  return $items;
+}
+
+/**
+ * Admin page to configure the OAuth2 server for use with restws.
+ */
+function restws_oauth2_server_config_form($form, &$form_state){
+
+  // Load default values from variables.
+  $server_name = variable_get('restws_oauth2_server_name', '');
+
+  $form['restws_oauth2_server_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('OAuth2 Server Name'),
+    '#description' => t('Machine Name of the OAuth2 Server to configure with restws.'),
+    '#default_value' => $server_name,
+    '#size' => 60,
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form);
+}

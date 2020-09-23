@@ -1,0 +1,127 @@
+<?php
+
+/**
+ * @file
+ * Farm plan consideration install.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function farm_plan_consideration_schema() {
+  $schema['farm_plan_consideration'] = array(
+    'description' => 'Stores information about farm planning considerations.',
+    'fields' => array(
+      'id' => array(
+        'description' => 'Primary Key: Unique consideration ID.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'plan_id' => array(
+        'description' => 'Plan ID that this consideration is linked to (optional).',
+        'type' => 'int',
+        'unsigned' => TRUE,
+      ),
+      'type' => array(
+        'description' => 'The machine-readable consideration type.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ),
+      'name' => array(
+        'description' => 'The user-entered name of the consideration.',
+        'type' => 'varchar',
+        'length' => '255',
+        'not null' => TRUE,
+      ),
+      'start_time' => array(
+        'description' => 'The timestamp when this consideration starts.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'end_time' => array(
+        'description' => 'The timestamp when this consideration ends.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('id'),
+    'indexes' => array(
+      'name' => array('name'),
+      'type_index' => array('type'),
+      'start_time' => array('start_time'),
+      'end_time' => array('end_time'),
+    ),
+  );
+  $schema['farm_plan_consideration_entity'] = array(
+    'description' => 'Links plan considerations to specific entities.',
+    'fields' => array(
+      'consideration_id' => array(
+        'description' => 'Consideration ID.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'entity_type' => array(
+        'description' => 'The entity type to link to.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ),
+      'entity_id' => array(
+        'description' => 'The entity ID to link to.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('consideration_id', 'entity_type', 'entity_id'),
+    'indexes' => array(
+      'consideration_id' => array('consideration_id'),
+      'entity_type' => array('entity_type'),
+      'entity_id' => array('entity_id'),
+    ),
+  );
+  return $schema;
+}
+
+/**
+ * Rename columns in plan consideration table to avoid reserved SQL words.
+ */
+function farm_plan_consideration_update_7000(&$sandbox) {
+
+  // Drop old indexes.
+  db_drop_index('farm_plan_consideration', 'start');
+  db_drop_index('farm_plan_consideration', 'end');
+
+  // Change start to start_time.
+  $start_time = array(
+    'description' => 'The timestamp when this consideration starts.',
+    'type' => 'int',
+    'unsigned' => TRUE,
+    'not null' => TRUE,
+  );
+  $start_time_keys = array(
+    'indexes' => array(
+      'start_time' => array('start_time'),
+    ),
+  );
+  db_change_field('farm_plan_consideration', 'start', 'start_time', $start_time, $start_time_keys);
+
+  // Change end to end_time.
+  $end_time = array(
+    'description' => 'The timestamp when this consideration ends.',
+    'type' => 'int',
+    'unsigned' => TRUE,
+    'not null' => TRUE,
+  );
+  $end_time_keys = array(
+    'indexes' => array(
+      'end_time' => array('end_time'),
+    ),
+  );
+  db_change_field('farm_plan_consideration', 'end', 'end_time', $end_time, $end_time_keys);
+}

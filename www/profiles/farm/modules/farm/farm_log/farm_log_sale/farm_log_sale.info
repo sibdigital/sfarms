@@ -1,0 +1,4 @@
+name = Farm Log: Sale (deprecated)
+description = The functionality of this module has been moved to Farm Ledger.
+core = 7.x
+package = farmOS (deprecated)

@@ -1,0 +1,17 @@
+name = "Log"
+description = "A general purpose record keeping system."
+core = 7.x
+package = "Log"
+dependencies[] = date_api
+dependencies[] = entity
+configure = admin/config/log
+files[] = log.class.inc
+files[] = includes/feeds/plugins/LogProcessor.inc
+files[] = includes/views/handlers/log_handler_field_timestamp.inc
+files[] = includes/views/handlers/log_handler_sort_timestamp.inc
+
+; Information added by Drupal.org packaging script on 2019-05-28
+version = "7.x-1.13"
+core = "7.x"
+project = "log"
+datestamp = "1559059996"

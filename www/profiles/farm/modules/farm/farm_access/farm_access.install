@@ -1,0 +1,48 @@
+<?php
+/**
+ * @file
+ * Farm Access install file.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function farm_access_install() {
+
+  // Create farm roles.
+  farm_access_roles_create();
+}
+
+/**
+ * Synchronize all available farm role permissions.
+ */
+function farm_access_enable() {
+
+  // Sync permissions.
+  farm_access_sync_perms();
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function farm_access_uninstall() {
+
+  // Delete the farm roles provided by this module.
+  $roles = farm_access_farm_access_roles();
+  foreach ($roles as $name) {
+    user_role_delete($name);
+  }
+
+  // Clean up variables.
+  variable_del('farm_access_allow_origin');
+}
+
+/**
+ * Enable the Farm Access Roles module.
+ */
+function farm_access_update_7000(&$sandbox) {
+  $module = 'farm_access_roles';
+  if (!module_exists($module)) {
+    module_enable(array($module));
+  }
+}

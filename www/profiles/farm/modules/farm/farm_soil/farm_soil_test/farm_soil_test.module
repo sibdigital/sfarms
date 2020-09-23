@@ -1,0 +1,89 @@
+<?php
+/**
+ * @file
+ * Code for the Farm Soil Test feature.
+ */
+
+include_once 'farm_soil_test.features.inc';
+
+/**
+ * Implements hook_help().
+ */
+function farm_soil_test_help($path, $arg) {
+  if ($path == 'log/add/farm_soil_test') {
+    $help = '<p>' . t('Use this form to enter information about soil tests you have performed. Use the log date field to record when the soil sample was taken. Test results can be uploaded to the files field as a PDF or other document.') . '</p>';
+    $help .= '<p>' . t('Each sample/test can be entered as a separate log, for easier searching/filtering later. Or, if you have a document from your lab that contains results of multiple tests, you can upload that to a single log for general storage. Give it a relative date based on when the samples were taken so that you can find it by month or year.') . '</p>';
+    return $help;
+  }
+}
+
+/**
+ * Implements hook_farm_ui_entities().
+ */
+function farm_soil_test_farm_ui_entities() {
+  return array(
+    'log' => array(
+      'farm_soil_test' => array(
+        'label' => t('Soil test'),
+        'label_plural' => t('Soil tests'),
+        'view' => 'farm_log_soil_tests',
+        'farm_asset' => 'none',
+        'areas' => TRUE,
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_farm_log_categories_populate().
+ */
+function farm_soil_test_farm_log_categories_populate($log) {
+  $categories = array();
+  if ($log->type == 'farm_soil_test') {
+    $categories[] = 'Soil';
+  }
+  return $categories;
+}
+
+/**
+ * Implements hook_feeds_importer_default_alter().
+ */
+function farm_soil_test_feeds_importer_default_alter(&$importers) {
+
+  // Add extra field mappings to soil tests.
+  $name = 'log_farm_soil_test';
+  if (!empty($importers[$name])) {
+    $mappings = array(
+      array(
+        'source' => 'Laboratory',
+        'target' => 'field_farm_soil_lab',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Soil names',
+        'target' => 'field_farm_soil_names',
+        'term_search' => '0',
+        'autocreate' => 1,
+        'language' => 'und',
+      ),
+    );
+    $importer_mappings =& $importers[$name]->config['processor']['config']['mappings'];
+    $importer_mappings = array_merge($importer_mappings, $mappings);
+  }
+}
+
+/**
+ * Implements hook_feeds_tamper_default_alter().
+ */
+function farm_soil_test_feeds_tamper_default_alter(&$feeds_tampers) {
+
+  // If farm_import is not installed, bail.
+  if (!module_exists('farm_import')) {
+    return;
+  }
+
+  // Explode soil names so it supports multiple values.
+  $feeds_tamper = farm_import_feeds_tamper_plugin('log', 'farm_soil_test', 'Soil names', 'explode');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+}

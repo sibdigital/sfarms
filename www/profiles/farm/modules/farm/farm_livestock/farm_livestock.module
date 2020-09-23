@@ -1,0 +1,490 @@
+<?php
+/**
+ * @file
+ * Code for the Farm Livestock feature.
+ */
+
+include_once 'farm_livestock.features.inc';
+
+/**
+ * Implements hook_farm_ui_entities().
+ */
+function farm_livestock_farm_ui_entities() {
+  return array(
+    'farm_asset' => array(
+      'animal' => array(
+         'label' => t('Animal'),
+        'label_plural' => t('Animals'),
+        'view' => 'farm_animals',
+      ),
+    ),
+    'log' => array(
+      'farm_birth' => array(
+        'label' => t('Birth record'),
+        'label_plural' => t('Birth records'),
+        'view' => 'farm_log_birth',
+        'farm_asset' => 'animal',
+        'log_view_asset_arg' => 3,
+        'weight' => 20,
+      ),
+      'farm_medical' => array(
+        'label' => t('Medical record'),
+        'label_plural' => t('Medical records'),
+        'view' => 'farm_log_medical',
+        'farm_asset' => 'animal',
+        'weight' => 20,
+      ),
+    ),
+    'taxonomy_term' => array(
+      'farm_animal_types' => array(
+        'label' => t('Type'),
+        'label_plural' => t('Types'),
+        'view' => 'farm_animal_types',
+        'farm_asset' => 'animal',
+        'asset_view_arg' => 2,
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_farm_log_categories().
+ */
+function farm_livestock_farm_log_categories() {
+
+  // Provide an "Animals" log category.
+  return array('Animals');
+}
+
+/**
+ * Implements hook_farm_log_categories_populate().
+ */
+function farm_livestock_farm_log_categories_populate($log) {
+  $categories = array();
+  if (in_array($log->type, array('farm_birth', 'farm_medical'))) {
+    $categories[] = 'Animals';
+  }
+  return $categories;
+}
+
+/**
+ * Implements hook_restws_field_collection_info().
+ */
+function farm_livestock_restws_field_collection_info() {
+  return array(
+    'field_farm_animal_tag' => array(
+      'alias' => 'tag',
+      'label' => t('ID tags'),
+      'multiple' => TRUE,
+      'fields' => array(
+        'id' => array(
+          'field_name' => 'field_farm_animal_tag_id',
+          'field_label' => t('Tag ID'),
+          'field_type' => 'text',
+          'field_value' => 'value',
+        ),
+        'location' => array(
+          'field_name' => 'field_farm_animal_tag_location',
+          'field_label' => t('Tag location'),
+          'field_type' => 'text',
+          'field_value' => 'value',
+        ),
+        'type' => array(
+          'field_name' => 'field_farm_animal_tag_type',
+          'field_label' => t('Tag type'),
+          'field_type' => 'text',
+          'field_value' => 'value',
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_farm_log_prepopulate_reference_fields().
+ */
+function farm_livestock_farm_log_prepopulate_reference_fields($log_type) {
+
+  // Allow field_farm_mother to be prepopulated in birth log forms.
+  if ($log_type == 'farm_birth') {
+    return array(
+      'field_farm_mother' => array(
+        'entity_type' => 'farm_asset',
+        'url_param' => 'farm_asset',
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_farm_log_prepopulate_reference_fields_alter().
+ */
+function farm_livestock_farm_log_prepopulate_reference_fields_alter(&$fields, $log_type) {
+
+  // Do not prepopulate field_farm_asset in birth log forms, because that is
+  // the children reference field. When the "Add birth record" action is
+  // clicked, we assume that the user wants to create a birth record from the
+  // context of a mother animal. So field_farm_mother is prepopulated instead.
+  // See farm_livestock_farm_log_prepopulate_reference_fields() above.
+  if ($log_type == 'farm_birth') {
+    if (!empty($fields['field_farm_asset'])) {
+      unset($fields['field_farm_asset']);
+    }
+  }
+}
+
+/**
+ * Implements hook_feeds_importer_default_alter().
+ */
+function farm_livestock_feeds_importer_default_alter($importers) {
+
+  // Add extra field mappings to animals.
+  $name = 'farm_asset_animal';
+  if (!empty($importers[$name])) {
+    $mappings = array(
+      array(
+        'source' => 'Nicknames',
+        'target' => 'field_farm_animal_nicknames',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Date of birth',
+        'target' => 'field_farm_date:start',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Species/breed',
+        'target' => 'field_farm_animal_type',
+        'term_search' => '0',
+        'autocreate' => 1,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Sex',
+        'target' => 'field_farm_animal_sex',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Castrated',
+        'target' => 'field_farm_animal_castrated',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Tag ID',
+        'target' => 'field_farm_animal_tag:field_farm_animal_tag_id',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Tag type',
+        'target' => 'field_farm_animal_tag:field_farm_animal_tag_type',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Tag location',
+        'target' => 'field_farm_animal_tag:field_farm_animal_tag_location',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+    );
+    $importer_mappings =& $importers[$name]->config['processor']['config']['mappings'];
+    $importer_mappings = array_merge($importer_mappings, $mappings);
+  }
+
+  // Add/alter field mappings on birth logs.
+  $name = 'log_farm_birth';
+  if (!empty($importers[$name])) {
+
+    // Add Mother ID and name mappings.
+    $mappings = array(
+      array(
+        'source' => 'Mother ID',
+        'target' => 'field_farm_mother:etid',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+      array(
+        'source' => 'Mother name',
+        'target' => 'field_farm_mother:label',
+        'unique' => FALSE,
+        'language' => 'und',
+      ),
+    );
+    $importer_mappings =& $importers[$name]->config['processor']['config']['mappings'];
+    $importer_mappings = array_merge($importer_mappings, $mappings);
+
+    // Change "Asset IDs" to "Children IDs".
+    foreach ($importer_mappings as &$mapping) {
+      if ($mapping['source'] == 'Asset IDs') {
+        $mapping['source'] = 'Children IDs';
+      }
+    }
+
+    // Change "Asset names" to "Children names".
+    foreach ($importer_mappings as &$mapping) {
+      if ($mapping['source'] == 'Asset names') {
+        $mapping['source'] = 'Children names';
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_feeds_tamper_default_alter().
+ */
+function farm_livestock_feeds_tamper_default_alter(&$feeds_tampers) {
+
+  // If farm_import is not installed, bail.
+  if (!module_exists('farm_import')) {
+    return;
+  }
+
+  // Make species/breed required.
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'animal', 'Species/breed', 'required');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+
+  // Convert "male" to "M".
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'animal', 'Sex', 'find_replace', array('find' => t('male'), 'replace' => 'M'));
+  $feeds_tamper->id .= '-male';
+  $feeds_tamper->weight = 1;
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+
+  // Convert "female" to "F".
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'animal', 'Sex', 'find_replace', array('find' => t('female'), 'replace' => 'F'));
+  $feeds_tamper->id .= '-female';
+  $feeds_tamper->weight = 2;
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+
+  // Convert castrated to boolean.
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'animal', 'Castrated', 'boolean_default_false');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+
+  // Convert date of birth to a Unix timestamp.
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'animal', 'Date of birth', 'strtotime');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+
+  // Explode nicknames to allow multiple values, and trim whitespace.
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'animal', 'Nicknames', 'explode');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+  $feeds_tamper = farm_import_feeds_tamper_plugin('farm_asset', 'animal', 'Nicknames', 'trim');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+
+  // Explode birth children IDs and names to allow multiple values, and trim
+  // whitespace from names.
+  $feeds_tamper = farm_import_feeds_tamper_plugin('log', 'farm_birth', 'Children IDs', 'explode');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+  $feeds_tamper = farm_import_feeds_tamper_plugin('log', 'farm_birth', 'Children names', 'explode');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+  $feeds_tamper = farm_import_feeds_tamper_plugin('log', 'farm_birth', 'Children names', 'trim');
+  $feeds_tampers[$feeds_tamper->id] = $feeds_tamper;
+}
+
+/**
+ * Implements hook_preprocess_field().
+ */
+function farm_livestock_preprocess_field(&$variables, $hook) {
+
+  // Only act on field_farm_date on animal assets.
+  $element = $variables['element'];
+  if (empty($element['#field_name']) || $element['#field_name'] != 'field_farm_date') {
+    return;
+  }
+  if (!($element['#entity_type'] == 'farm_asset' && $element['#bundle'] == 'animal')) {
+    return;
+  }
+
+  // If the field is blank, bail.
+  if (empty($element['#items'][0]['value']) || empty($variables['items'][0]['#markup'])) {
+    return;
+  }
+
+  // Get the asset ID.
+  if (empty($element['#object']->id)) {
+    return;
+  }
+  $asset_id = $element['#object']->id;
+
+  // Search for this asset's birth log.
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'log')
+    ->entityCondition('bundle', 'farm_birth')
+    ->fieldCondition('field_farm_asset', 'target_id', $asset_id);
+  $result = $query->execute();
+
+  // Load only the first log.
+  $log = NULL;
+  if (isset($result['log'])) {
+    $log_ids = array_keys($result['log']);
+    $log_id = reset($log_ids);
+    $log = log_load($log_id);
+  }
+
+  // If a log exists, link the birth date field to it.
+  if (!empty($log)) {
+    $birthdate = $variables['items'][0]['#markup'];
+    $log_uri = entity_uri('log', $log);
+    $variables['items'][0]['#markup'] = '<a href="' . url($log_uri['path']) . '">' . $birthdate . '</a>';
+  }
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function farm_livestock_entity_insert($entity, $type) {
+
+  // If this is a birth log, sync children.
+  if ($type == 'log' && $entity->type == 'farm_birth') {
+    farm_livestock_birth_log_sync($entity);
+  }
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function farm_livestock_entity_update($entity, $type) {
+
+  // If this is a birth log, sync children.
+  if ($type == 'log' && $entity->type == 'farm_birth') {
+    farm_livestock_birth_log_sync($entity);
+  }
+}
+
+/**
+ * Sync information in children animals if a birth log is saved.
+ *
+ * @param Log $log
+ *   The log entity that is being created or updated.
+ */
+function farm_livestock_birth_log_sync($log) {
+
+  // Load log entity metadata wrapper.
+  $log_wrapper = entity_metadata_wrapper('log', $log);
+
+  // Get the mother animal asset ID from the birth log.
+  $mother_id = $log_wrapper->field_farm_mother->getIdentifier();
+
+  // Iterate through the children assets.
+  foreach ($log_wrapper->field_farm_asset->getIterator() as $delta => $child_wrapper) {
+
+    // We will only save the child asset if we need to.
+    $save = FALSE;
+
+    // If the animal's date of birth does not match the timestamp of the birth
+    // log, sync it.
+    if ($child_wrapper->field_farm_date->value() != $log->timestamp) {
+      $child_wrapper->field_farm_date->set($log->timestamp);
+      drupal_set_message(t('<a href="!asset_path">@asset_label</a>\'s date of birth has been updated to match their birth log.', array('!asset_path' => url('farm/asset/' . $child_wrapper->getIdentifier()), '@asset_label' => $child_wrapper->label())));
+      $save = TRUE;
+    }
+
+    // If a mother is specified, make sure that it is listed as one of the
+    // child's parents.
+    if (!empty($mother_id)) {
+
+      // Iterate through the child's parents to see if the mother is listed.
+      $mother_exists = FALSE;
+      foreach ($child_wrapper->field_farm_parent->getIterator() as $delta => $parent_wrapper) {
+        if ($parent_wrapper->getIdentifier() == $mother_id) {
+          $mother_exists = TRUE;
+        }
+      }
+
+      // If the mother is not one of the child's parents, add her.
+      if (!$mother_exists) {
+        $child_wrapper->field_farm_parent[] = $mother_id;
+        $message_args = array(
+          '!mother_path' => url('farm/asset/' . $log_wrapper->field_farm_mother->getIdentifier()),
+          '@mother_label' => $log_wrapper->field_farm_mother->label(),
+          '!child_path' => url('farm/asset/' . $child_wrapper->getIdentifier()),
+          '@child_label' => $child_wrapper->label(),
+        );
+        drupal_set_message(t('<a href="!mother_path">@mother_label</a> was added to <a href="!child_path">@child_label</a>\'s parents.', $message_args));
+        $save = TRUE;
+      }
+    }
+
+    // Save the asset, if necessary.
+    if ($save) {
+      $child_wrapper->save();
+    }
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function farm_livestock_form_log_form_alter(&$form, &$form_state, $form_id) {
+
+  // Only act on the birth log form.
+  if (!(!empty($form['log']['#value']->type) && $form['log']['#value']->type == 'farm_birth')) {
+    return;
+  }
+
+  // If this is a new birth log form, display a link to the birth quick form
+  // for convenience.
+  if (!empty($form['log']['#value']->is_new)) {
+    drupal_set_message(t('Tip: Use the <a href="@path">Birth Quick Form</a> to quickly record animal births and create child animal records at the same time.', array('@path' => url('farm/quick/birth'))));
+  }
+
+  // Add validation to make sure that the same child is not referenced in
+  // multiple birth logs.
+  $form['#validate'][] = 'farm_livestock_birth_log_form_validate';
+}
+
+/**
+ * Validate handler for the birth log form.
+ *
+ * @param array $form
+ *   The form array.
+ * @param array $form_state
+ *   The form state array.
+ */
+function farm_livestock_birth_log_form_validate(array $form, array &$form_state) {
+
+  // Get the log ID (if available).
+  $log_id = 0;
+  if (!empty($form_state['values']['log']->id)) {
+    $log_id = $form_state['values']['log']->id;
+  }
+
+  // Get the referenced assets.
+  $asset_ids = array();
+  if (!empty($form_state['values']['field_farm_asset'][LANGUAGE_NONE])) {
+    foreach ($form_state['values']['field_farm_asset'][LANGUAGE_NONE] as $asset_reference) {
+      if (empty($asset_reference['target_id'])) {
+        continue;
+      }
+      $asset_ids[] = $asset_reference['target_id'];
+    }
+  }
+
+  // If there are assets, look up birth logs that reference them.
+  if (!empty($asset_ids)) {
+
+    // Perform an entity field query to find logs that reference the assets.
+    $query = new EntityFieldQuery();
+    $query->entityCondition('entity_type', 'log')
+      ->entityCondition('bundle', 'farm_birth')
+      ->propertyCondition('id', $log_id, '!=')
+      ->fieldCondition('field_farm_asset', 'target_id', $asset_ids);
+    $result = $query->execute();
+    if (isset($result['log'])) {
+      $log_ids = array_keys($result['log']);
+      $logs = entity_load('log', $log_ids);
+    }
+
+    // If matching logs were found, set form error(s).
+    if (!empty($logs)) {
+      foreach ($logs as $log) {
+        $log_label = entity_label('log', $log);
+        $log_uri = entity_uri('log', $log);
+        form_set_error('field_farm_asset', t('The existing birth log <a href="@log_path">%log_name</a> already references one or more of the children. More than one birth log cannot reference the same child.', array('%child_name' => '', '@log_path' => url($log_uri['path']), '%log_name' => $log_label)));
+      }
+    }
+  }
+}
